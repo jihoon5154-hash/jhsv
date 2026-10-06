@@ -1,0 +1,1918 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>두런두런 채팅</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: "Dotum", "돋움", "DotumChe", "Gulim", "굴림", "Malgun Gothic", "맑은 고딕", "Apple SD Gothic Neo", sans-serif;
+    font-size: 12px;
+    color: #1a1a1a;
+    -webkit-font-smoothing: none;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    position: relative;
+    overflow-x: hidden;
+    background:
+      radial-gradient(ellipse 60% 40% at 78% 8%, rgba(126,196,255,0.30), transparent 62%),
+      radial-gradient(ellipse 50% 34% at 14% 20%, rgba(96,150,220,0.26), transparent 66%),
+      radial-gradient(ellipse 80% 44% at 50% 108%, rgba(52,118,170,0.42), transparent 64%),
+      linear-gradient(175deg, #21354e 0%, #1d3f63 28%, #205575 55%, #1c6379 76%, #17505f 100%);
+    background-attachment: fixed;
+  }
+
+  /* 배경 장식: 은은한 광원과 격자 (움직임 없음) */
+  .bg-deco {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    overflow: hidden;
+  }
+  .bg-grid {
+    position: absolute;
+    inset: -2px;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
+    background-size: 44px 44px;
+    mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 78%);
+    -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, #000 20%, transparent 78%);
+  }
+  .bg-glow {
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(60px);
+  }
+  .bg-glow.g1 {
+    width: 520px; height: 420px;
+    top: -150px; left: -120px;
+    background: radial-gradient(circle at 40% 40%, rgba(120,190,255,0.40), transparent 70%);
+  }
+  .bg-glow.g2 {
+    width: 460px; height: 380px;
+    bottom: -140px; right: -110px;
+    background: radial-gradient(circle at 40% 40%, rgba(70,200,205,0.34), transparent 70%);
+  }
+  .bg-glow.g3 {
+    width: 340px; height: 300px;
+    top: 34%; right: 12%;
+    background: radial-gradient(circle at 40% 40%, rgba(150,175,255,0.24), transparent 72%);
+  }
+  .bg-horizon {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 34%;
+    background: linear-gradient(180deg, transparent, rgba(8,26,42,0.55));
+  }
+
+  #loginScreen, #chatScreen { position: relative; z-index: 1; }
+
+  /* ---------- 공통 윈도우 프레임 ---------- */
+  .window {
+    background: #ffffff;
+    border: 1px solid #4a7fb5;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow:
+      0 1px 0 rgba(255,255,255,0.8) inset,
+      0 10px 24px rgba(20,70,130,0.35),
+      0 2px 4px rgba(20,70,130,0.25);
+  }
+  .titlebar {
+    position: relative;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.15) 42%, rgba(255,255,255,0) 48%),
+      linear-gradient(180deg, #7cc0f7 0%, #3f8ce0 40%, #1f66c2 60%, #144e9c 100%);
+    color: #ffffff;
+    text-shadow: 0 1px 1px rgba(0,40,90,0.6);
+    font-weight: bold;
+    font-size: 13px;
+    padding: 6px 7px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    user-select: none;
+    border-bottom: 1px solid #0f4487;
+  }
+  .titlebar-left {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .titlebar-icon {
+    width: 12px; height: 12px;
+    background: radial-gradient(circle at 35% 30%, #ffffff, #a8d8ff 55%, #4a9be0 100%);
+    border: 1px solid #ffffff;
+    border-radius: 3px;
+    display: inline-block;
+    flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(0,30,70,0.4);
+  }
+  .titlebar-btns { display: flex; gap: 3px; flex-shrink: 0; }
+  .tb-btn {
+    width: 16px; height: 14px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #ffffff 0%, #dbeeff 45%, #a9d4f5 55%, #8ec1ef 100%);
+    border: 1px solid #ffffff;
+    box-shadow: 0 1px 2px rgba(0,30,70,0.4);
+    font-size: 9px;
+    line-height: 13px;
+    text-align: center;
+    color: #0b3d68;
+    cursor: pointer;
+  }
+  .tb-btn:active {
+    background: linear-gradient(180deg, #8ec1ef 0%, #a9d4f5 45%, #dbeeff 100%);
+  }
+
+  /* ---------- 메뉴바 (아웃룩 익스프레스 스타일 장식) ---------- */
+  .menubar {
+    display: flex;
+    gap: 14px;
+    padding: 4px 10px;
+    background: linear-gradient(180deg, #fbfdff 0%, #eef6fc 100%);
+    border-bottom: 1px solid #cfe0ee;
+    font-size: 11px;
+    color: #2a3b4a;
+    user-select: none;
+  }
+  .menubar .menu-item u { color: #144e9c; text-decoration: none; }
+  .menubar .menu-item:hover { color: #144e9c; cursor: default; }
+
+  /* ---------- 아이콘 툴바 (회신/전달/삭제 스타일) ---------- */
+  .ox-toolbar {
+    display: flex;
+    align-items: stretch;
+    gap: 2px;
+    padding: 4px 8px;
+    background: linear-gradient(180deg, #f6fbff 0%, #d9edfb 100%);
+    border-bottom: 1px solid #a9cbe6;
+  }
+  .ox-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 5px;
+    padding: 3px 10px 2px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 10px;
+    color: #234;
+  }
+  .ox-btn:hover {
+    background: linear-gradient(180deg, #ffffff 0%, #dcefff 100%);
+    border-color: #a9cbe6;
+  }
+  .ox-btn:active {
+    background: linear-gradient(180deg, #cfe6fb 0%, #eef8ff 100%);
+  }
+  .ox-icon {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(0,30,70,0.35), 0 1px 0 rgba(255,255,255,0.6) inset;
+  }
+  .ox-icon-rename { background: radial-gradient(circle at 35% 30%, #ffd27a, #e8962c 70%, #c67312 100%); }
+  .ox-icon-refresh { background: radial-gradient(circle at 35% 30%, #9be08a, #4fa93a 70%, #327a20 100%); }
+  .ox-icon-exit { background: radial-gradient(circle at 35% 30%, #ff9a9a, #e34b4b 70%, #b32424 100%); }
+  .ox-icon-link { background: radial-gradient(circle at 35% 30%, #c6b6ff, #7a5ce0 70%, #5638b8 100%); }
+  .ox-divider {
+    width: 1px;
+    margin: 2px 4px;
+    background: linear-gradient(180deg, transparent, #a9cbe6 20%, #a9cbe6 80%, transparent);
+  }
+  .ox-myinfo { font-size: 11px; color: #0b3d68; align-self: center; }
+
+  /* ---------- 카페/포럼풍 탭 바 ---------- */
+  .tabstrip {
+    display: flex;
+    align-items: flex-end;
+    gap: 3px;
+    padding: 5px 6px 0;
+    background: linear-gradient(180deg, #dceefb 0%, #b9dcf5 100%);
+    border-bottom: 1px solid #7fa8d9;
+  }
+  .tab {
+    padding: 5px 12px;
+    font-size: 11px;
+    color: #3a6a92;
+    background: linear-gradient(180deg, #eaf6ff 0%, #cfe8fa 100%);
+    border: 1px solid #9dc3e6;
+    border-bottom: none;
+    border-radius: 4px 4px 0 0;
+  }
+  .tab.active {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    max-width: 160px;
+    background: #ffffff;
+    color: #144e9c;
+    font-weight: bold;
+    border-color: #4a7fb5;
+  }
+  .tab.active .tab-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tab-close {
+    width: 13px; height: 13px;
+    flex-shrink: 0;
+    border-radius: 2px;
+    background: linear-gradient(180deg, #ffffff 0%, #dbeeff 55%, #a9d4f5 100%);
+    border: 1px solid #7fa8d9;
+    font-size: 9px;
+    line-height: 11px;
+    text-align: center;
+    color: #b32424;
+    cursor: pointer;
+  }
+  .tab-close:hover { background: #ffd9d9; }
+
+  /* ---------- 방 이름 표시줄 ---------- */
+  .room-title-bar {
+    display: flex;
+    align-items: stretch;
+    padding: 0;
+    background: linear-gradient(180deg, #eaf6ff 0%, #d7ecfb 100%);
+    border-bottom: 1px solid #b9d9f2;
+  }
+  .room-title-cell {
+    display: flex;
+    align-items: center;
+    padding: 6px 10px;
+    min-width: 0;
+  }
+  .room-title-cell + .room-title-cell {
+    border-left: 1px solid #bcdcf2;
+    box-shadow: -1px 0 0 rgba(255,255,255,0.85) inset;
+  }
+  .room-title-cell.cell-name { flex: 0 1 auto; max-width: 46%; }
+  .room-title-cell.cell-notice { flex: 1 1 auto; overflow: hidden; }
+  .room-title-cell.cell-icons { flex: 0 0 auto; }
+
+  .room-title-bar .room-title-text {
+    min-width: 0;
+    font-weight: bold;
+    font-size: 13px;
+    color: #144e9c;
+    letter-spacing: 0.2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .room-title-bar .room-title-text::before { content: "< "; color: #4a7fb5; font-weight: bold; }
+  .room-title-bar .room-title-text::after { content: " >"; color: #4a7fb5; font-weight: bold; }
+
+  .room-notice {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+    font-size: 11px;
+    color: #3f6d95;
+  }
+  .room-notice-badge {
+    flex-shrink: 0;
+    padding: 1px 6px;
+    border-radius: 9px;
+    background: linear-gradient(180deg, #ffd98a 0%, #f0b23e 100%);
+    border: 1px solid #d99b27;
+    color: #6b4405;
+    font-size: 10px;
+    font-weight: bold;
+  }
+  .room-notice-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .room-icons {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    flex-shrink: 0;
+  }
+  .room-icon {
+    width: 21px; height: 19px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #ffffff 0%, #eaf6ff 55%, #cfe8fa 100%);
+    border: 1px solid #a9cbe6;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.9) inset, 0 1px 2px rgba(20,70,130,0.18);
+    cursor: default;
+  }
+  .room-icon:hover { background: linear-gradient(180deg, #ffffff 0%, #dcefff 100%); }
+
+  /* ---------- 메일함 스타일 정보 바 ---------- */
+  .mail-info-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 3px 18px;
+    padding: 6px 10px;
+    background: #ffffff;
+    border-bottom: 1px solid #cfe0ee;
+    font-size: 11px;
+  }
+  .mail-info-bar .info-item .info-label {
+    color: #144e9c;
+    font-weight: bold;
+    margin-right: 4px;
+  }
+  .mail-info-bar .info-item .info-value { color: #1a1a1a; }
+
+  /* ---------- 버튼 / 인풋 공통 ---------- */
+  .btn {
+    position: relative;
+    overflow: hidden;
+    background: linear-gradient(180deg, #ffffff 0%, #eaf6ff 38%, #bfe0f7 55%, #8fc4ec 100%);
+    border: 1px solid #4a7fb5;
+    border-radius: 5px;
+    padding: 4px 14px;
+    font-size: 12px;
+    color: #0b3d68;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.9) inset, 0 2px 3px rgba(20,70,130,0.25);
+  }
+  .btn::before {
+    content: "";
+    position: absolute;
+    left: 2px; right: 2px; top: 1px;
+    height: 45%;
+    background: linear-gradient(180deg, rgba(255,255,255,0.9), rgba(255,255,255,0));
+    border-radius: 4px 4px 8px 8px;
+    pointer-events: none;
+  }
+  .btn:active {
+    background: linear-gradient(180deg, #8fc4ec 0%, #bfe0f7 45%, #eaf6ff 100%);
+    box-shadow: 0 1px 2px rgba(20,70,130,0.3) inset;
+  }
+  .btn:disabled {
+    color: #9db3c4;
+    cursor: default;
+  }
+  input[type="text"] {
+    border: 1px solid #6f9dc9;
+    border-radius: 4px;
+    background: #ffffff;
+    padding: 4px 6px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    box-shadow: 0 1px 3px rgba(30,80,150,0.25) inset;
+  }
+  input[type="text"]:focus {
+    background: #f3faff;
+    border-color: #2a6fc9;
+    box-shadow: 0 1px 4px rgba(30,110,200,0.35) inset, 0 0 0 2px rgba(120,190,255,0.35);
+  }
+
+  /* ================= 로그인 화면 ================= */
+  #loginScreen .window { width: 340px; }
+  .login-hero {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: linear-gradient(180deg, #ffffff 0%, #eaf6ff 100%);
+    border-bottom: 1px solid #cfe0ee;
+  }
+  .login-hero-icon {
+    width: 34px; height: 34px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 17px;
+    background: radial-gradient(circle at 32% 28%, #ffffff, #a9d4f5 45%, #3f8ce0 100%);
+    box-shadow: 0 1px 3px rgba(20,70,130,0.4), 0 1px 0 rgba(255,255,255,0.8) inset;
+  }
+  .login-hero-title {
+    font-weight: bold;
+    color: #144e9c;
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+  .login-hero-sub {
+    font-size: 10.5px;
+    color: #6b88a0;
+  }
+  .login-body {
+    padding: 14px 18px 16px;
+    background: linear-gradient(180deg, #f5fbff 0%, #dcf0fc 55%, #c9e6f8 100%);
+  }
+  .login-row { margin-bottom: 10px; }
+  .login-row label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 3px;
+    color: #0b3d68;
+    font-weight: bold;
+  }
+  .field-icon {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 9px;
+    flex-shrink: 0;
+    box-shadow: 0 1px 2px rgba(0,30,70,0.35), 0 1px 0 rgba(255,255,255,0.6) inset;
+  }
+  .field-icon-id { background: radial-gradient(circle at 35% 30%, #d9b6ff, #8a4fd8 70%, #6a2fb8 100%); color: #fff; }
+  .field-icon-nick { background: radial-gradient(circle at 35% 30%, #ffe8a0, #f0b23e 70%, #cc8a12 100%); color: #7a4d00; }
+  .field-icon-room { background: radial-gradient(circle at 35% 30%, #9be0d0, #2fa98e 70%, #1c7c65 100%); color: #fff; }
+  .login-row input { width: 100%; }
+  /* ---------- 자체 모달 다이얼로그 ---------- */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(12,32,52,0.5);
+    backdrop-filter: blur(2px);
+  }
+  .modal-overlay.open { display: flex; }
+  .modal-window {
+    width: 320px;
+    max-width: calc(100vw - 40px);
+    background: #ffffff;
+    border: 1px solid #2a5f96;
+    border-radius: 6px;
+    overflow: hidden;
+    box-shadow: 0 14px 34px rgba(4,20,38,0.5);
+  }
+  .modal-window.wide { width: 360px; }
+  .modal-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 8px;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.12) 45%, rgba(255,255,255,0) 50%),
+      linear-gradient(180deg, #6fb6ef 0%, #3b86d8 42%, #1d62bd 60%, #144e9c 100%);
+    color: #fff;
+    font-weight: bold;
+    font-size: 12px;
+    text-shadow: 0 1px 1px rgba(0,40,90,0.6);
+  }
+  .modal-x {
+    width: 16px; height: 14px;
+    border-radius: 3px;
+    background: linear-gradient(180deg, #ffffff 0%, #dbeeff 55%, #9ecbf0 100%);
+    border: 1px solid #ffffff;
+    color: #0b3d68;
+    font-size: 9px;
+    line-height: 13px;
+    text-align: center;
+    cursor: pointer;
+  }
+  .modal-body {
+    padding: 14px 16px;
+    font-size: 12px;
+    color: #223;
+    line-height: 1.6;
+    background: linear-gradient(180deg, #f8fcff 0%, #eef6fc 100%);
+    white-space: pre-line;
+  }
+  .modal-body.flush { padding: 0; }
+  .modal-body input[type="text"] { width: 100%; margin-top: 8px; }
+  .modal-foot {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+    padding: 9px 12px;
+    background: linear-gradient(180deg, #eaf4fb 0%, #dceaf5 100%);
+    border-top: 1px solid #cfe0ee;
+  }
+
+  /* 모달 안 목록 */
+  .modal-list { max-height: 230px; overflow-y: auto; background: #fff; }
+  .modal-list .roomlist-item { padding: 6px 10px; font-size: 11.5px; }
+  .modal-searchbar {
+    display: flex;
+    gap: 5px;
+    padding: 9px 10px;
+    background: linear-gradient(180deg, #f2f9ff 0%, #e4f0f9 100%);
+    border-bottom: 1px solid #cfe0ee;
+  }
+  .modal-searchbar input[type="text"] { flex: 1; min-width: 0; }
+
+
+  .panel {
+    margin: 12px 0;
+    background: #ffffff;
+    border: 1px solid #a9cbe6;
+    border-radius: 4px;
+    overflow: hidden;
+    box-shadow: 0 1px 2px rgba(20,70,130,0.15);
+  }
+  .panel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 4px 7px;
+    background: linear-gradient(180deg, #eaf6ff 0%, #cfe8fa 100%);
+    border-bottom: 1px solid #b9d9f2;
+  }
+  .panel-title {
+    font-size: 11px;
+    font-weight: bold;
+    color: #144e9c;
+  }
+  .panel-btn {
+    padding: 1px 8px;
+    font-size: 10px;
+    font-family: inherit;
+    color: #0b3d68;
+    background: linear-gradient(180deg, #ffffff 0%, #dbeeff 55%, #b9dcf5 100%);
+    border: 1px solid #7fa8d9;
+    border-radius: 3px;
+    cursor: pointer;
+  }
+  .panel-btn:active { background: linear-gradient(180deg, #b9dcf5 0%, #eaf6ff 100%); }
+
+  .roomlist-items {
+    max-height: 96px;
+    overflow-y: auto;
+    background: #ffffff;
+  }
+  .roomlist-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 8px;
+    font-size: 11px;
+    border-bottom: 1px solid #f0f7fc;
+    cursor: pointer;
+  }
+  .roomlist-item:hover { background: #eaf6ff; }
+  .rl-icon { flex-shrink: 0; font-size: 10px; }
+  .rl-name {
+    flex: 1 1 auto;
+    min-width: 0;
+    color: #1a1a1a;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .rl-time { flex-shrink: 0; color: #93a8b8; font-size: 10px; }
+  .roomlist-empty {
+    padding: 10px 8px;
+    text-align: center;
+    color: #93a8b8;
+    font-size: 11px;
+  }
+
+  .usersearch-row {
+    display: flex;
+    gap: 4px;
+    padding: 6px 7px;
+  }
+  .usersearch-row input[type="text"] { flex: 1; min-width: 0; }
+  .usersearch-result {
+    padding: 0 7px 7px;
+    font-size: 11px;
+  }
+  .us-card {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 8px;
+    background: linear-gradient(180deg, #f7fbff 0%, #eaf4fc 100%);
+    border: 1px solid #cfe0ee;
+    border-radius: 3px;
+  }
+  .us-avatar {
+    width: 24px; height: 24px;
+    flex-shrink: 0;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    background: radial-gradient(circle at 32% 28%, #ffffff, #a9d4f5 50%, #3f8ce0 100%);
+    box-shadow: 0 1px 2px rgba(20,70,130,0.35);
+  }
+  .us-id { color: #1a1a1a; font-weight: bold; }
+  .us-grade {
+    margin-left: 5px;
+    padding: 1px 5px;
+    border-radius: 8px;
+    font-size: 9px;
+    color: #6b4405;
+    background: linear-gradient(180deg, #ffe4a8 0%, #f3c264 100%);
+    border: 1px solid #dba93f;
+  }
+  .us-meta { color: #7f97ab; font-size: 10px; }
+  .us-empty { color: #93a8b8; }
+
+  .login-hint {
+    font-size: 11px;
+    color: #5b7fa0;
+    margin: 10px 0 14px;
+    line-height: 1.5;
+    background: #f7fbff;
+    border-left: 3px solid #7cc0f7;
+    border-radius: 0 3px 3px 0;
+    padding: 6px 8px;
+  }
+  .login-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .mini-link {
+    font-size: 10px;
+    font-weight: normal;
+    color: #3f7fbf;
+    text-decoration: underline;
+    cursor: pointer;
+    margin-left: auto;
+  }
+  .mini-link:hover { color: #144e9c; }
+  .mini-link.foot-link { margin-left: 0; }
+  .login-error {
+    color: #c0392b;
+    font-size: 11px;
+    margin-top: -4px;
+    margin-bottom: 8px;
+    min-height: 14px;
+  }
+
+  /* ================= 채팅 화면 ================= */
+  #chatScreen { display: none; }
+  #chatScreen .window {
+    width: 760px;
+    height: 560px;
+    display: flex;
+    flex-direction: column;
+  }
+  .chat-toolbar {
+    background: linear-gradient(180deg, #f2f9ff 0%, #cfe8fa 100%);
+    border-bottom: 1px solid #7fa8d9;
+    padding: 5px 7px;
+    display: flex;
+    gap: 4px;
+    align-items: center;
+  }
+  .chat-toolbar .spacer { flex: 1; }
+  .chat-body {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+    background: #ffffff;
+  }
+
+  /* 좌측 사용자 목록 */
+  .userlist {
+    width: 128px;
+    flex-shrink: 0;
+    border-right: 1px solid #b9d9f2;
+    background: linear-gradient(180deg, #f7fbff 0%, #e6f3fc 100%);
+    display: flex;
+    flex-direction: column;
+  }
+  .userlist-header {
+    background: linear-gradient(180deg, #eaf6ff 0%, #b9dcf5 100%);
+    color: #0b3d68;
+    font-weight: bold;
+    padding: 6px 7px;
+    border-bottom: 1px solid #b9d9f2;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.7) inset;
+  }
+  .userlist-items {
+    flex: 1;
+    overflow-y: auto;
+    padding: 2px 0;
+  }
+  .userlist-item {
+    padding: 2.5px 7px;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    line-height: 1.35;
+    border-bottom: 1px solid #eef6fc;
+  }
+  .ul-icon {
+    font-size: 9px;
+    line-height: 1;
+    flex-shrink: 0;
+    align-self: center;
+  }
+  .userlist-item.offline .ul-icon { opacity: 0.7; }
+  .userlist-item.offline .nick { color: #6b7680; }
+  .userlist-item.offline .uid { color: #a3adb6; }
+  .userlist-item .nick {
+    color: #1a1a1a;
+    font-weight: 400;
+    font-size: 11.5px;
+    flex: 1 1 auto;
+    min-width: 14px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .userlist-item .nick .me-tag {
+    color: #2a6fc9;
+    font-weight: normal;
+    font-size: 10px;
+  }
+  .userlist-item .uid {
+    color: #8b95a0;
+    font-weight: 400;
+    font-size: 11.5px;
+    flex: 0 1 auto;
+    max-width: 34px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 우측 채팅 영역 */
+  .chat-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .log-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 6px 10px;
+    background: #ffffff;
+  }
+  .msg-block {
+    margin-bottom: 2px;
+    padding: 1px 6px 2px;
+    border-radius: 3px;
+    line-height: 1.4;
+  }
+  .msg-block.alt { background: #f4faff; }
+  .msg-quote-line {
+    color: #6b88a0;
+    font-weight: normal;
+  }
+  .msg-quote-line .q-nick {
+    color: #1c5fa8;
+    font-weight: bold;
+    font-size: 12px;
+  }
+  .msg-block.me .msg-quote-line .q-nick { color: #c0392b; }
+  .msg-quote-line .q-uid {
+    color: #8398aa;
+    font-weight: 500;
+    font-size: 11.5px;
+    margin-left: 1px;
+  }
+  .msg-quote-line .q-mark { color: #b7c8d6; }
+  .msg-quote-line .q-label {
+    color: #7f97ab;
+    font-size: 11px;
+    margin-left: 3px;
+  }
+  .msg-block.me .msg-quote-line { color: #a08a86; }
+  .msg-body-line {
+    padding-left: 14px;
+    word-break: break-all;
+  }
+  .msg-body-line .ts {
+    color: #a9bdcc;
+    font-size: 10px;
+    margin-left: 6px;
+  }
+  .msg-line.system {
+    text-align: center;
+    color: #8fa6ba;
+    font-style: italic;
+    margin: 4px 0;
+  }
+
+  .emoji-bar {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    padding: 4px 8px;
+    background: linear-gradient(180deg, #f6fbff 0%, #e2f0fb 100%);
+    border-top: 1px solid #cfe0ee;
+  }
+  .emoji-btn {
+    width: 24px; height: 24px;
+    border-radius: 5px;
+    background: linear-gradient(180deg, #ffffff 0%, #eaf6ff 60%, #d3ecfb 100%);
+    border: 1px solid #b9d9f2;
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .emoji-btn:hover { background: linear-gradient(180deg, #ffffff 0%, #dcefff 100%); }
+  .emoji-btn:active { background: #bfe0f7; }
+  .emoji-bar-divider {
+    width: 1px;
+    height: 16px;
+    margin: 0 4px;
+    background: #a9cbe6;
+  }
+
+  .send-row {
+    display: flex;
+    gap: 5px;
+    padding: 7px;
+    border-top: 1px solid #b9d9f2;
+    background: linear-gradient(180deg, #eaf6ff 0%, #d3ecfb 100%);
+  }
+  .send-row input[type="text"] {
+    flex: 1;
+  }
+
+  .status-strip {
+    font-size: 10px;
+    color: #6b88a0;
+    padding: 3px 8px;
+    background: linear-gradient(180deg, #ffffff 0%, #eaf5fc 100%);
+    border-top: 1px solid #e2eefa;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .status-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #9be08a, #3a9a2a 80%);
+    box-shadow: 0 0 3px rgba(60,170,50,0.8);
+    flex-shrink: 0;
+  }
+</style>
+</head>
+<body>
+
+  <div class="bg-deco" id="bgDeco">
+    <div class="bg-glow g1"></div>
+    <div class="bg-glow g2"></div>
+    <div class="bg-glow g3"></div>
+    <div class="bg-grid"></div>
+    <div class="bg-horizon"></div>
+  </div>
+
+  <!-- ================= 로그인 화면 ================= -->
+  <div id="loginScreen">
+    <div class="window">
+      <div class="titlebar">
+        <div class="titlebar-left">
+          <span class="titlebar-icon"></span>
+          <span>두런두런 채팅 - 로그인</span>
+        </div>
+        <div class="titlebar-btns">
+          <div class="tb-btn">_</div>
+          <div class="tb-btn">□</div>
+          <div class="tb-btn">×</div>
+        </div>
+      </div>
+      <div class="menubar">
+        <span class="menu-item"><u>파</u>일(F)</span>
+        <span class="menu-item"><u>편</u>집(E)</span>
+        <span class="menu-item"><u>보</u>기(V)</span>
+        <span class="menu-item"><u>도</u>구(T)</span>
+        <span class="menu-item">도움말(<u>H</u>)</span>
+      </div>
+      <div class="login-hero">
+        <div class="login-hero-icon">💬</div>
+        <div>
+          <div class="login-hero-title">두런두런 채팅에 오신 것을 환영합니다</div>
+          <div class="login-hero-sub">아이디와 닉네임을 입력하고 채팅방에 입장해보세요.</div>
+        </div>
+      </div>
+      <div class="login-body">
+        <div class="login-row">
+          <label for="inputId"><span class="field-icon field-icon-id">🔒</span>아이디</label>
+          <input type="text" id="inputId" maxlength="20" placeholder="예: abc1234">
+        </div>
+        <div class="login-row">
+          <label for="inputNick"><span class="field-icon field-icon-nick">☺</span>닉네임 (한글 가능)</label>
+          <input type="text" id="inputNick" maxlength="16" placeholder="예: 홍길동">
+        </div>
+        <div class="login-row">
+          <label for="inputRoom">
+            <span class="field-icon field-icon-room">✉</span>채팅방 이름
+            <a class="mini-link" id="openRoomList">방 찾기</a>
+          </label>
+          <input type="text" id="inputRoom" maxlength="30" placeholder="예: 자유게시판 잡담방">
+        </div>
+
+        <div class="login-error" id="loginError"></div>
+        <div class="login-hint">
+          ※ 같은 채팅방 이름으로 입장하면 다른 사용자와 대화를 함께 나눌 수 있습니다.<br>
+          ※ 이 방의 대화 내용은 같은 방에 입장한 모든 사용자에게 공개됩니다.
+        </div>
+        <div class="login-actions">
+          <a class="mini-link foot-link" id="openUserSearch">사용자 검색</a>
+          <button class="btn" id="joinBtn">입장하기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-window" id="modalWindow">
+      <div class="modal-title">
+        <span id="modalTitleText">알림</span>
+        <span class="modal-x" id="modalX">×</span>
+      </div>
+      <div class="modal-body" id="modalBody"></div>
+      <div class="modal-foot" id="modalFoot"></div>
+    </div>
+  </div>
+
+  <div id="chatScreen">
+    <div class="window">
+      <div class="titlebar">
+        <div class="titlebar-left">
+          <span class="titlebar-icon" id="secretClearIcon"></span>
+          <span id="roomTitleText">채팅방</span>
+        </div>
+        <div class="titlebar-btns">
+          <div class="tb-btn" title="닫기">×</div>
+        </div>
+      </div>
+
+      <div class="menubar">
+        <span class="menu-item"><u>파</u>일(F)</span>
+        <span class="menu-item"><u>편</u>집(E)</span>
+        <span class="menu-item"><u>보</u>기(V)</span>
+        <span class="menu-item"><u>도</u>구(T)</span>
+        <span class="menu-item">메<u>시</u>지(M)</span>
+        <span class="menu-item">도움말(<u>H</u>)</span>
+      </div>
+
+      <div class="ox-toolbar">
+        <button class="ox-btn" id="renameBtn">
+          <span class="ox-icon ox-icon-rename">✎</span>
+          <span>이름변경</span>
+        </button>
+        <div class="ox-divider"></div>
+        <button class="ox-btn" id="linkBtn">
+          <span class="ox-icon ox-icon-link">🔗</span>
+          <span>링크복사</span>
+        </button>
+        <div class="ox-divider"></div>
+        <button class="ox-btn" id="refreshBtn">
+          <span class="ox-icon ox-icon-refresh">⟳</span>
+          <span>새로고침</span>
+        </button>
+        <div class="ox-divider"></div>
+        <button class="ox-btn" id="exitBtn">
+          <span class="ox-icon ox-icon-exit">✕</span>
+          <span>나가기</span>
+        </button>
+        <span class="spacer"></span>
+        <span id="myInfoText" class="ox-myinfo"></span>
+      </div>
+
+      <div class="tabstrip">
+        <span class="tab">채팅 홈</span>
+        <span class="tab active">
+          <span class="tab-title" id="tabTitleText">채팅방</span>
+          <span class="tab-close" id="tabCloseBtn" title="나가기">×</span>
+        </span>
+      </div>
+
+      <div class="room-title-bar">
+        <div class="room-title-cell cell-name">
+          <span class="room-title-text" id="infoRoomTitle">-</span>
+        </div>
+        <div class="room-title-cell cell-notice">
+          <span class="room-notice">
+            <span class="room-notice-badge">공지</span>
+            <span class="room-notice-text" id="roomNoticeText">서로 예의를 지켜 즐거운 대화를 나눠주세요.</span>
+          </span>
+        </div>
+        <div class="room-title-cell cell-icons">
+          <span class="room-icons">
+            <span class="room-icon" title="공지">📢</span>
+            <span class="room-icon" title="쪽지">✉</span>
+            <span class="room-icon" title="사진첩">🖼</span>
+            <span class="room-icon" title="음악">🎵</span>
+            <span class="room-icon" title="즐겨찾기">⭐</span>
+            <span class="room-icon" title="설정">⚙</span>
+          </span>
+        </div>
+      </div>
+
+      <div class="mail-info-bar">
+        <span class="info-item"><span class="info-label">내 정보:</span><span class="info-value" id="infoMe">-</span></span>
+        <span class="info-item"><span class="info-label">참여인원:</span><span class="info-value" id="infoCount">0명</span></span>
+      </div>
+
+      <div class="chat-body">
+        <div class="userlist">
+          <div class="userlist-header" id="userlistHeader">대화상대 (0)</div>
+          <div class="userlist-items" id="userlistItems"></div>
+        </div>
+
+        <div class="chat-main">
+          <div class="log-area" id="logArea"></div>
+          <div class="emoji-bar" id="emojiBar">
+            <button type="button" class="emoji-btn" data-emoji="😊">😊</button>
+            <button type="button" class="emoji-btn" data-emoji="😢">😢</button>
+            <button type="button" class="emoji-btn" data-emoji="😮">😮</button>
+            <button type="button" class="emoji-btn" data-emoji="😆">😆</button>
+            <button type="button" class="emoji-btn" data-emoji="❤">❤</button>
+            <div class="emoji-bar-divider"></div>
+            <button type="button" class="emoji-btn" data-emoji="^^;">^^;</button>
+            <button type="button" class="emoji-btn" data-emoji="ㅋㅋ">ㅋㅋ</button>
+          </div>
+          <div class="send-row">
+            <input type="text" id="msgInput" maxlength="300" placeholder="메시지를 입력하세요">
+            <button class="btn" id="sendBtn">전송</button>
+          </div>
+        </div>
+      </div>
+      <div class="status-strip" id="statusStrip"><span class="status-dot"></span><span id="statusText">연결 대기중...</span></div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  "use strict";
+
+  // ------------------ 모달 다이얼로그 ------------------
+  // 아티팩트는 샌드박스에서 실행되어 브라우저 기본 confirm/prompt/alert 이 동작하지 않는다.
+  // 따라서 직접 만든 창을 사용한다.
+  var modalEls = {
+    overlay: document.getElementById("modalOverlay"),
+    win: document.getElementById("modalWindow"),
+    title: document.getElementById("modalTitleText"),
+    body: document.getElementById("modalBody"),
+    foot: document.getElementById("modalFoot"),
+    x: document.getElementById("modalX")
+  };
+  var modalCleanup = null;
+
+  function closeModal() {
+    modalEls.overlay.classList.remove("open");
+    modalEls.body.innerHTML = "";
+    modalEls.foot.innerHTML = "";
+    modalEls.body.className = "modal-body";
+    modalEls.win.className = "modal-window";
+    if (modalCleanup) { var fn = modalCleanup; modalCleanup = null; fn(); }
+  }
+
+  modalEls.x.addEventListener("click", closeModal);
+  modalEls.overlay.addEventListener("click", function (e) {
+    if (e.target === modalEls.overlay) closeModal();
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && modalEls.overlay.classList.contains("open")) closeModal();
+  });
+
+  function makeBtn(label, primary) {
+    var b = document.createElement("button");
+    b.className = "btn";
+    b.textContent = label;
+    if (primary) b.style.fontWeight = "bold";
+    return b;
+  }
+
+  function showAlert(message, title) {
+    return new Promise(function (resolve) {
+      modalEls.title.textContent = title || "알림";
+      modalEls.body.textContent = message;
+      modalEls.foot.innerHTML = "";
+      var ok = makeBtn("확인", true);
+      ok.addEventListener("click", function () { closeModal(); });
+      modalEls.foot.appendChild(ok);
+      modalCleanup = function () { resolve(); };
+      modalEls.overlay.classList.add("open");
+      ok.focus();
+    });
+  }
+
+  function showConfirm(message, title) {
+    return new Promise(function (resolve) {
+      var answered = false;
+      modalEls.title.textContent = title || "확인";
+      modalEls.body.textContent = message;
+      modalEls.foot.innerHTML = "";
+      var yes = makeBtn("확인", true);
+      var no = makeBtn("취소");
+      yes.addEventListener("click", function () { answered = true; closeModal(); resolve(true); });
+      no.addEventListener("click", function () { closeModal(); });
+      modalEls.foot.appendChild(no);
+      modalEls.foot.appendChild(yes);
+      modalCleanup = function () { if (!answered) resolve(false); };
+      modalEls.overlay.classList.add("open");
+      yes.focus();
+    });
+  }
+
+  function showPrompt(message, defaultValue, title) {
+    return new Promise(function (resolve) {
+      var answered = false;
+      modalEls.title.textContent = title || "입력";
+      modalEls.body.innerHTML = "";
+      var label = document.createElement("div");
+      label.textContent = message;
+      var input = document.createElement("input");
+      input.type = "text";
+      input.value = defaultValue || "";
+      input.maxLength = 30;
+      modalEls.body.appendChild(label);
+      modalEls.body.appendChild(input);
+      modalEls.foot.innerHTML = "";
+      var ok = makeBtn("확인", true);
+      var cancel = makeBtn("취소");
+      function submit() { answered = true; var v = input.value; closeModal(); resolve(v); }
+      ok.addEventListener("click", submit);
+      cancel.addEventListener("click", function () { closeModal(); });
+      input.addEventListener("keydown", function (e) { if (e.key === "Enter") submit(); });
+      modalEls.foot.appendChild(cancel);
+      modalEls.foot.appendChild(ok);
+      modalCleanup = function () { if (!answered) resolve(null); };
+      modalEls.overlay.classList.add("open");
+      setTimeout(function () { input.focus(); input.select(); }, 0);
+    });
+  }
+
+  // 임의의 내용을 담는 모달 (방 목록, 사용자 검색 등)
+  function showPanelModal(title, buildFn, wide) {
+    modalEls.title.textContent = title;
+    modalEls.body.innerHTML = "";
+    modalEls.body.className = "modal-body flush";
+    if (wide) modalEls.win.className = "modal-window wide";
+    modalEls.foot.innerHTML = "";
+    var close = makeBtn("닫기");
+    close.addEventListener("click", function () { closeModal(); });
+    modalEls.foot.appendChild(close);
+    modalEls.overlay.classList.add("open");
+    buildFn(modalEls.body);
+  }
+
+  // ------------------ 상태 ------------------
+  var state = {
+    userId: "",
+    nickname: "",
+    roomKey: "",       // 저장소 키에 쓰이는 안전한 방 식별자
+    roomKeySource: "",  // roomKey를 만들 때 쓴 원본 텍스트 (링크 생성/재현용)
+    roomTitle: "",      // 화면에 보이는 방 이름 (변경 가능)
+    lastPresenceSignature: "",
+    confirmedLog: [],   // 저장소에서 마지막으로 확인된 로그
+    clearedAt: 0,        // 이 시각 이전의 메시지는 삭제된 것으로 간주
+    pendingLog: [],      // 아직 저장 확인 전인, 화면에는 이미 반영된 로그
+    pollTimer: null,
+    heartbeatTimer: null,
+    joined: false
+  };
+
+  // ------------------ 유틸 ------------------
+  function sanitizeKey(str) {
+    return String(str).trim().replace(/[\s\/\\'"]+/g, "_").slice(0, 80);
+  }
+
+  // 이 채팅방으로 바로 접속할 수 있는 링크를 만든다.
+  // (같은 파일이 실제로 웹에 호스팅되어 있어야 다른 사람이 열었을 때 동작함)
+  function buildShareLink() {
+    var base = location.origin + location.pathname;
+    return base + "?room=" + encodeURIComponent(state.roomKeySource || state.roomTitle);
+  }
+
+  async function copyShareLink() {
+    var link = buildShareLink();
+    try {
+      await navigator.clipboard.writeText(link);
+      await showAlert("채팅방 링크가 클립보드에 복사되었습니다.\n" + link, "링크 복사");
+    } catch (e) {
+      await showPrompt("아래 링크를 복사해서 공유하세요:", link, "링크 복사");
+    }
+  }
+
+  function escapeHtml(str) {
+    var div = document.createElement("div");
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
+  function formatTime(ts) {
+    var d = new Date(ts);
+    var hh = String(d.getHours()).padStart(2, "0");
+    var mm = String(d.getMinutes()).padStart(2, "0");
+    return hh + ":" + mm;
+  }
+
+  var idCounter = 0;
+  // 아이디는 앞 7자리까지만 보여주고 나머지는 *** 로 가린다.
+  // 7자리 미만이면 아이디 전체를 쓰고 뒤에 *** 를 붙인다.
+  function maskId(id) {
+    return String(id).slice(0, 7) + "***";
+  }
+
+  function setRoomTitleDisplay(title) {
+    var titleEl = document.getElementById("infoRoomTitle");
+    var tabEl = document.getElementById("tabTitleText");
+    if (titleEl) titleEl.textContent = title;
+    if (tabEl) tabEl.textContent = title;
+  }
+
+  function nextId() {
+    idCounter += 1;
+    return (state.userId || "anon") + "_" + Date.now() + "_" + idCounter + "_" + Math.random().toString(36).slice(2, 7);
+  }
+
+  // 예전 데이터 등 id가 없는 항목에 결정적인 id를 부여 (동일 내용은 항상 같은 id)
+  function ensureIds(arr) {
+    return arr.map(function (m) {
+      if (m.id) return m;
+      m.id = "legacy_" + m.ts + "_" + (m.userId || "") + "_" + (m.text ? m.text.length : 0);
+      return m;
+    });
+  }
+
+  function logKey() { return "chat:" + state.roomKey + ":log"; }
+  function presenceKey() { return "chat:" + state.roomKey + ":presence"; }
+  function titleKey() { return "chat:" + state.roomKey + ":title"; }
+  function clearedKey() { return "chat:" + state.roomKey + ":clearedAt"; }
+  function roomIndexKey() { return "chat:__rooms__"; }
+
+  // ------------------ 저장소 접근 헬퍼 ------------------
+  async function getShared(key) {
+    try {
+      var res = await window.storage.get(key, true);
+      return res ? res.value : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  async function setShared(key, value) {
+    try {
+      var res = await window.storage.set(key, value, true);
+      return !!res;
+    } catch (e) {
+      console.error("storage set 실패:", key, e);
+      return false;
+    }
+  }
+
+  // 삭제 시점(clearedAt)보다 오래된 항목은 걸러낸다.
+  // 다른 사용자의 저장 작업이 옛 로그를 되살리더라도 화면에는 나타나지 않는다.
+  function applyClearFilter(arr) {
+    if (!state.clearedAt) return arr;
+    return arr.filter(function (m) { return m.ts > state.clearedAt; });
+  }
+
+  async function getLog() {
+    var raw = await getShared(logKey());
+    if (!raw) return [];
+    try {
+      var arr = JSON.parse(raw);
+      return Array.isArray(arr) ? applyClearFilter(ensureIds(arr)) : [];
+    } catch (e) {
+      return [];
+    }
+  }
+
+  // 저장소에 없는 항목이면 추가 (id 기준 중복 방지)
+  async function persistEntry(entry) {
+    try {
+      var arr = await getLog();
+      if (!arr.some(function (e) { return e.id === entry.id; })) {
+        arr.push(entry);
+        if (arr.length > 300) arr = arr.slice(arr.length - 300);
+        await setShared(logKey(), JSON.stringify(arr));
+      }
+    } catch (e) {
+      console.error("메시지 저장 실패:", e);
+    }
+  }
+
+  // ------------------ 개설된 방 목록 ------------------
+  async function getRooms() {
+    var raw = await getShared(roomIndexKey());
+    if (!raw) return {};
+    try {
+      var obj = JSON.parse(raw);
+      return (obj && typeof obj === "object") ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  async function registerRoom(roomNameSource, title) {
+    try {
+      var rooms = await getRooms();
+      rooms[sanitizeKey(roomNameSource)] = {
+        source: roomNameSource,
+        title: title,
+        lastActive: Date.now()
+      };
+      // 오래된 방(7일 이상 활동 없음)은 목록에서 정리
+      var cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
+      Object.keys(rooms).forEach(function (k) {
+        if (!rooms[k].lastActive || rooms[k].lastActive < cutoff) delete rooms[k];
+      });
+      await setShared(roomIndexKey(), JSON.stringify(rooms));
+    } catch (e) {
+      console.error("방 목록 등록 실패:", e);
+    }
+  }
+
+  function relativeTime(ts) {
+    var diff = Date.now() - ts;
+    var min = Math.floor(diff / 60000);
+    if (min < 1) return "방금 전";
+    if (min < 60) return min + "분 전";
+    var hr = Math.floor(min / 60);
+    if (hr < 24) return hr + "시간 전";
+    return Math.floor(hr / 24) + "일 전";
+  }
+
+  // 실제로 저장소를 조회해 개설된 방을 보여준다.
+  async function openRoomListModal() {
+    showPanelModal("개설된 채팅방", function (body) {
+      body.innerHTML =
+        '<div class="modal-searchbar">' +
+          '<input type="text" id="roomFilterInput" placeholder="방 이름으로 거르기">' +
+          '<button class="panel-btn" id="roomListRefresh">새로고침</button>' +
+        '</div>' +
+        '<div class="modal-list" id="roomListItems">' +
+          '<div class="roomlist-empty">불러오는 중...</div>' +
+        '</div>';
+
+      var listEl = body.querySelector("#roomListItems");
+      var filterEl = body.querySelector("#roomFilterInput");
+      var allRooms = [];
+
+      function draw() {
+        var q = filterEl.value.trim().toLowerCase();
+        var rows = allRooms.filter(function (r) {
+          if (!q) return true;
+          return (r.title || r.source || "").toLowerCase().indexOf(q) !== -1;
+        });
+        if (!rows.length) {
+          listEl.innerHTML = '<div class="roomlist-empty">' +
+            (allRooms.length ? "조건에 맞는 방이 없습니다." : "개설된 채팅방이 없습니다. 새로 만들어보세요.") +
+            '</div>';
+          return;
+        }
+        listEl.innerHTML = rows.map(function (r) {
+          return (
+            '<div class="roomlist-item" data-room="' + escapeHtml(r.source) + '">' +
+              '<span class="rl-icon">💬</span>' +
+              '<span class="rl-name">' + escapeHtml(r.title || r.source) + '</span>' +
+              '<span class="rl-time">' + escapeHtml(relativeTime(r.lastActive)) + '</span>' +
+            '</div>'
+          );
+        }).join("");
+      }
+
+      async function load() {
+        listEl.innerHTML = '<div class="roomlist-empty">불러오는 중...</div>';
+        var rooms = await getRooms();
+        allRooms = Object.keys(rooms).map(function (k) { return rooms[k]; })
+          .filter(function (r) { return r && r.source; })
+          .sort(function (a, b) { return (b.lastActive || 0) - (a.lastActive || 0); });
+        draw();
+      }
+
+      filterEl.addEventListener("input", draw);
+      body.querySelector("#roomListRefresh").addEventListener("click", load);
+      listEl.addEventListener("click", function (e) {
+        var item = e.target.closest(".roomlist-item");
+        if (!item) return;
+        document.getElementById("inputRoom").value = item.dataset.room;
+        closeModal();
+        document.getElementById("inputId").focus();
+      });
+
+      load();
+    }, true);
+  }
+
+  // 검색은 실제 조회가 아니라, 입력한 아이디로부터 일정하게 만들어지는 예시 정보를 보여준다.
+  function openUserSearchModal() {
+    showPanelModal("사용자 검색", function (body) {
+      body.innerHTML =
+        '<div class="modal-searchbar">' +
+          '<input type="text" id="userSearchInput" maxlength="20" placeholder="아이디를 입력하세요">' +
+          '<button class="panel-btn" id="userSearchBtn">검색</button>' +
+        '</div>' +
+        '<div class="usersearch-result" id="userSearchResult">' +
+          '<div class="us-empty">아이디를 입력한 뒤 검색을 눌러주세요.</div>' +
+        '</div>';
+
+      var input = body.querySelector("#userSearchInput");
+      var resultEl = body.querySelector("#userSearchResult");
+
+      function run() {
+        var id = input.value.trim();
+        if (!id) {
+          resultEl.innerHTML = '<div class="us-empty">아이디를 입력해주세요.</div>';
+          return;
+        }
+        var seed = 0;
+        for (var i = 0; i < id.length; i++) seed += id.charCodeAt(i) * (i + 3);
+        var days = (seed % 1200) + 1;
+        var avatars = ["😀", "😎", "🐱", "🐶", "🌙", "⭐", "🍀", "🎧"];
+        var grades = ["일반회원", "정회원", "우수회원", "열혈회원"];
+        resultEl.innerHTML =
+          '<div class="us-card">' +
+            '<span class="us-avatar">' + avatars[seed % avatars.length] + '</span>' +
+            '<span>' +
+              '<span class="us-id">' + escapeHtml(maskId(id)) + '</span>' +
+              '<span class="us-grade">' + grades[seed % grades.length] + '</span><br>' +
+              '<span class="us-meta">' + days + '일 전 마지막 접속</span>' +
+            '</span>' +
+          '</div>';
+      }
+
+      body.querySelector("#userSearchBtn").addEventListener("click", run);
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") { e.preventDefault(); run(); }
+      });
+      setTimeout(function () { input.focus(); }, 0);
+    }, true);
+  }
+
+  async function getPresence() {    var raw = await getShared(presenceKey());
+    if (!raw) return {};
+    try {
+      var obj = JSON.parse(raw);
+      return (obj && typeof obj === "object") ? obj : {};
+    } catch (e) {
+      return {};
+    }
+  }
+
+  async function setPresence(obj) {
+    await setShared(presenceKey(), JSON.stringify(obj));
+  }
+
+  // ------------------ 고정 대화상대 (항상 목록에 표시되는 장식용 인원) ------------------
+  var FIXED_USERS = [
+    { userId: "kmsu02",   nickname: "김민수" },
+    { userId: "pjh89",    nickname: "박지현89" },
+    { userId: "leejh21",  nickname: "이준호" },
+    { userId: "csy0304",  nickname: "최수연" },
+    { userId: "jdw77",    nickname: "정다운" },
+    { userId: "kty1225",  nickname: "강태양" },
+    { userId: "sunny05",  nickname: "오늘도맑음" },
+    { userId: "wolf119",  nickname: "배고픈늑대" },
+    { userId: "ramen02",  nickname: "라면줄까" },
+    { userId: "walker1",  nickname: "지나가던행인1" },
+    { userId: "boring07", nickname: "심심한오후" },
+    { userId: "school99", nickname: "학교가기싫어" },
+    { userId: "coffee12", nickname: "커피한잔해요" },
+    { userId: "justme03", nickname: "그냥그런사람" },
+    { userId: "mudo2005", nickname: "무한도전팬" },
+    { userId: "night22",  nickname: "밤샘중" },
+    { userId: "idea404",  nickname: "아이디뭐하지" },
+    { userId: "gangnam9", nickname: "강남스타일" },
+    { userId: "seoul88",  nickname: "서울사람" },
+    { userId: "busan04",  nickname: "부산갈매기" },
+    { userId: "catman17", nickname: "고양이집사" },
+    { userId: "ot2359",   nickname: "야근중" },
+    { userId: "otaku06",  nickname: "오타쿠인생" },
+    { userId: "food0203", nickname: "오늘뭐먹지" },
+    { userId: "sleepy11", nickname: "잠와요" },
+    { userId: "game1234", nickname: "게임하자" },
+    { userId: "diner00",  nickname: "심야식당" },
+    { userId: "typea09",  nickname: "소심한A형" },
+    { userId: "soccer7",  nickname: "축구광" },
+    { userId: "singhi3",  nickname: "노래방가자" },
+    { userId: "crush21",  nickname: "짝사랑중" },
+    { userId: "exam2004", nickname: "시험기간" },
+    { userId: "vacay08",  nickname: "방학이좋아" },
+    { userId: "parttime5",nickname: "알바하는중" }
+  ];
+
+  // ------------------ 화면 렌더링 ------------------
+  function renderLog(arr) {
+    var logArea = document.getElementById("logArea");
+    var nearBottom = (logArea.scrollTop + logArea.clientHeight >= logArea.scrollHeight - 30);
+
+    var blockIndex = 0;
+    var html = arr.map(function (m) {
+      if (m.type === "system") {
+        return '<div class="msg-line system">◇ ' + escapeHtml(m.text) + '</div>';
+      }
+      var isMe = m.userId === state.userId;
+      blockIndex += 1;
+      var blockClass = "msg-block" + (isMe ? " me" : "") + (blockIndex % 2 === 0 ? " alt" : "");
+      return (
+        '<div class="' + blockClass + '">' +
+          '<div class="msg-quote-line"><span class="q-mark">&quot;</span><span class="q-nick">' + escapeHtml(m.nickname) + '</span><span class="q-uid">(' + escapeHtml(maskId(m.userId)) + ')</span><span class="q-mark">&quot;</span><span class="q-label">님의 말:</span></div>' +
+          '<div class="msg-body-line">' + escapeHtml(m.text) + '</div>' +
+        '</div>'
+      );
+    }).join("");
+
+    logArea.innerHTML = html || '<div class="msg-line system">대화 내용이 없습니다. 첫 메시지를 남겨보세요.</div>';
+
+    if (nearBottom) {
+      logArea.scrollTop = logArea.scrollHeight;
+    }
+  }
+
+  // 확정된 로그 + 아직 저장 확인 전인 로그를 합쳐서 화면에 보여준다 (전송 시 메시지가 순간적으로 사라지는 것을 방지)
+  function renderMerged() {
+    var confirmedIds = {};
+    state.confirmedLog.forEach(function (e) { confirmedIds[e.id] = true; });
+    var merged = state.confirmedLog.concat(
+      state.pendingLog.filter(function (p) { return !confirmedIds[p.id]; })
+    );
+    merged.sort(function (a, b) { return a.ts - b.ts; });
+    renderLog(merged);
+  }
+
+  function renderPresence(presenceObj) {
+    var now = Date.now();
+    var liveEntries = Object.keys(presenceObj)
+      .map(function (uid) { return { userId: uid, nickname: presenceObj[uid].nickname, ts: presenceObj[uid].ts, live: true }; })
+      .filter(function (u) { return (now - u.ts) < 20000; }); // 20초 이상 무응답이면 화면에서 제외
+
+    // 실제 접속자와 아이디가 겹치는 고정 대화상대는 제외하고 합침
+    var liveIds = {};
+    liveEntries.forEach(function (u) { liveIds[u.userId] = true; });
+    var fixedEntries = FIXED_USERS
+      .filter(function (u) { return !liveIds[u.userId]; })
+      .map(function (u) { return { userId: u.userId, nickname: u.nickname, live: false }; });
+
+    var entries = liveEntries.concat(fixedEntries)
+      .sort(function (a, b) {
+        if (a.live !== b.live) return a.live ? -1 : 1; // 실제 접속자를 위로
+        return a.nickname.localeCompare(b.nickname, "ko");
+      });
+
+    var header = document.getElementById("userlistHeader");
+    header.textContent = "대화상대 (" + entries.length + ")";
+    var infoCount = document.getElementById("infoCount");
+    if (infoCount) infoCount.textContent = entries.length + "명";
+
+    var iconPool = ["🔴", "🟠", "🟡", "🟢", "🔵", "🟣", "🟤", "⚪", "⚫", "🔶", "🔷", "🔺", "🔻", "⭐", "🌀", "🍀"];
+    function iconFor(id) {
+      var sum = 0;
+      for (var i = 0; i < id.length; i++) sum += id.charCodeAt(i) * (i + 1);
+      return iconPool[sum % iconPool.length];
+    }
+
+    var items = document.getElementById("userlistItems");
+    items.innerHTML = entries.map(function (u) {
+      var meTag = (u.userId === state.userId) ? ' <span class="me-tag">(나)</span>' : "";
+      var itemClass = "userlist-item" + (u.live ? "" : " offline");
+      return (
+        '<div class="' + itemClass + '">' +
+          '<span class="ul-icon">' + iconFor(u.userId) + '</span>' +
+          '<span class="nick">' + escapeHtml(u.nickname) + meTag + '</span>' +
+          '<span class="uid">(' + escapeHtml(u.userId) + ')</span>' +
+        '</div>'
+      );
+    }).join("");
+  }
+
+  // ------------------ 폴링 ------------------
+  async function pollOnce() {
+    // 다른 사용자가 전체 삭제를 했는지 먼저 확인한다.
+    var clearedRaw = await getShared(clearedKey());
+    var clearedAt = clearedRaw ? parseInt(clearedRaw, 10) : 0;
+    if (clearedAt && clearedAt > state.clearedAt) {
+      state.clearedAt = clearedAt;
+    }
+
+    var arr = await getLog();
+    state.confirmedLog = arr;
+
+    // 확정된 로그에 이미 포함된 항목은 pending에서 제거하고, 삭제된 시점 이전 항목도 제거
+    var confirmedIds = {};
+    arr.forEach(function (e) { confirmedIds[e.id] = true; });
+    state.pendingLog = applyClearFilter(
+      state.pendingLog.filter(function (p) { return !confirmedIds[p.id]; })
+    );
+
+    renderMerged();
+
+    var presenceObj = await getPresence();
+    var psig = JSON.stringify(presenceObj);
+    if (psig !== state.lastPresenceSignature) {
+      state.lastPresenceSignature = psig;
+      renderPresence(presenceObj);
+    }
+
+    var title = await getShared(titleKey());
+    if (title && title !== state.roomTitle) {
+      state.roomTitle = title;
+      document.getElementById("roomTitleText").textContent = "채팅방 - " + title;
+      setRoomTitleDisplay(title);
+    }
+
+    document.getElementById("statusText").textContent =
+      "연결됨 · " + state.roomTitle + " · 마지막 갱신 " + formatTime(Date.now());
+  }
+
+  async function heartbeat() {
+    var presenceObj = await getPresence();
+    presenceObj[state.userId] = { nickname: state.nickname, ts: Date.now() };
+    await setPresence(presenceObj);
+  }
+
+  // ------------------ 로컬 즉시 반영 + 백그라운드 저장 ------------------
+  function addLocalEntry(entry) {
+    entry.id = entry.id || nextId();
+    state.pendingLog.push(entry);
+    renderMerged();
+    persistEntry(entry);
+    return entry;
+  }
+
+  // ------------------ 입장 / 퇴장 ------------------
+  async function joinRoom(userId, nickname, roomName) {
+    state.userId = userId;
+    state.nickname = nickname;
+    state.roomKey = sanitizeKey(roomName);
+    state.roomKeySource = roomName;
+    state.roomTitle = roomName;
+    state.clearedAt = 0;
+    state.confirmedLog = [];
+    state.pendingLog = [];
+
+    // 이 방의 삭제 시점을 먼저 확인해 지워진 대화가 되살아나지 않게 한다.
+    var clearedRaw = await getShared(clearedKey());
+    state.clearedAt = clearedRaw ? parseInt(clearedRaw, 10) : 0;
+
+    // 방 제목이 없으면 최초 설정
+    var existingTitle = await getShared(titleKey());
+    if (!existingTitle) {
+      await setShared(titleKey(), roomName);
+      state.roomTitle = roomName;
+    } else {
+      state.roomTitle = existingTitle;
+    }
+
+    await registerRoom(roomName, state.roomTitle);
+
+    document.getElementById("roomTitleText").textContent = "채팅방 - " + state.roomTitle;
+    document.getElementById("myInfoText").textContent = nickname + "(" + userId + ") 님으로 접속중";
+    setRoomTitleDisplay(state.roomTitle);
+    document.getElementById("infoMe").textContent = nickname + "(" + userId + ")";
+
+    // presence 등록
+    var presenceObj = await getPresence();
+    presenceObj[userId] = { nickname: nickname, ts: Date.now() };
+    await setPresence(presenceObj);
+
+    // 입장 시스템 메시지
+    addLocalEntry({
+      type: "system",
+      text: nickname + "(" + maskId(userId) + ")님이 입장하셨습니다.",
+      ts: Date.now()
+    });
+
+    state.joined = true;
+
+    document.getElementById("loginScreen").style.display = "none";
+    document.getElementById("chatScreen").style.display = "block";
+
+    await pollOnce();
+
+    state.pollTimer = setInterval(pollOnce, 2000);
+    state.heartbeatTimer = setInterval(heartbeat, 5000);
+  }
+
+  async function leaveRoom() {
+    if (!state.joined) return;
+    state.joined = false;
+
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    if (state.heartbeatTimer) clearInterval(state.heartbeatTimer);
+
+    try {
+      var presenceObj = await getPresence();
+      delete presenceObj[state.userId];
+      await setPresence(presenceObj);
+
+      await persistEntry({
+        id: nextId(),
+        type: "system",
+        text: state.nickname + "(" + maskId(state.userId) + ")님이 퇴장하셨습니다.",
+        ts: Date.now()
+      });
+    } catch (e) {
+      // 최선의 노력만 수행
+    }
+
+    document.getElementById("chatScreen").style.display = "none";
+    document.getElementById("loginScreen").style.display = "block";
+    document.getElementById("logArea").innerHTML = "";
+    document.getElementById("userlistItems").innerHTML = "";
+    state.confirmedLog = [];
+    state.pendingLog = [];
+  }
+
+  // ------------------ 메시지 전송 ------------------
+  function sendMessage() {
+    var input = document.getElementById("msgInput");
+    var text = input.value.trim();
+    if (!text) return;
+
+    input.value = "";
+    input.focus();
+
+    addLocalEntry({
+      type: "chat",
+      userId: state.userId,
+      nickname: state.nickname,
+      text: text,
+      ts: Date.now()
+    });
+  }
+
+  // ------------------ 방 이름 변경 ------------------
+  async function renameRoom() {
+    var newTitle = await showPrompt("새 채팅방 이름을 입력하세요.", state.roomTitle, "방 이름 변경");
+    if (newTitle === null) return;
+    newTitle = newTitle.trim();
+    if (!newTitle) return;
+
+    await setShared(titleKey(), newTitle);
+    state.roomTitle = newTitle;
+    document.getElementById("roomTitleText").textContent = "채팅방 - " + newTitle;
+    setRoomTitleDisplay(newTitle);
+
+    addLocalEntry({
+      type: "system",
+      text: state.nickname + "님이 채팅방 이름을 '" + newTitle + "'(으)로 변경했습니다.",
+      ts: Date.now()
+    });
+  }
+
+  // ------------------ 채팅 전체 삭제 (숨김 기능) ------------------
+  async function clearAllChat() {
+    var ok = await showConfirm(
+      "채팅 전체 기록을 삭제할까요?\n" +
+      "이 작업은 되돌릴 수 없고, 같은 방에 있는 모든 사람의 화면에서 함께 삭제됩니다."
+    );
+    if (!ok) return;
+
+    var now = Date.now();
+    state.clearedAt = now;
+    state.confirmedLog = [];
+    state.pendingLog = [];
+    renderMerged();
+
+    try {
+      // 삭제 시점을 먼저 기록해야 진행 중이던 다른 사용자의 저장이 로그를 되살리지 못한다.
+      await setShared(clearedKey(), String(now));
+      await setShared(logKey(), JSON.stringify([]));
+    } catch (e) {
+      console.error("채팅 삭제 실패:", e);
+    }
+  }
+
+  // 타이틀바 아이콘을 짧은 시간 안에 3번 클릭하면 전체 삭제가 실행된다.
+  // (버튼에 아무 표시가 없어 알고 있는 사람만 사용할 수 있음)
+  (function setupSecretClearTrigger() {
+    var clickTimes = [];
+    document.getElementById("secretClearIcon").addEventListener("click", function () {
+      var now = Date.now();
+      clickTimes.push(now);
+      clickTimes = clickTimes.filter(function (t) { return now - t < 800; });
+      if (clickTimes.length >= 3) {
+        clickTimes = [];
+        clearAllChat();
+      }
+    });
+  })();
+
+  // ------------------ 이벤트 바인딩 ------------------
+  document.getElementById("joinBtn").addEventListener("click", async function () {
+    var idEl = document.getElementById("inputId");
+    var nickEl = document.getElementById("inputNick");
+    var roomEl = document.getElementById("inputRoom");
+    var errEl = document.getElementById("loginError");
+
+    var idVal = idEl.value.trim();
+    var nickVal = nickEl.value.trim();
+    var roomVal = roomEl.value.trim();
+
+    if (!idVal || !nickVal || !roomVal) {
+      errEl.textContent = "아이디, 닉네임, 채팅방 이름을 모두 입력해주세요.";
+      return;
+    }
+    errEl.textContent = "";
+
+    var btn = this;
+    btn.disabled = true;
+    btn.textContent = "입장 중...";
+
+    try {
+      await joinRoom(idVal, nickVal, roomVal);
+    } catch (e) {
+      errEl.textContent = "입장에 실패했습니다. 다시 시도해주세요.";
+      console.error(e);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "입장하기";
+    }
+  });
+
+  [document.getElementById("inputId"), document.getElementById("inputNick"), document.getElementById("inputRoom")]
+    .forEach(function (el) {
+      el.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") document.getElementById("joinBtn").click();
+      });
+    });
+
+  document.getElementById("sendBtn").addEventListener("click", sendMessage);
+  document.getElementById("msgInput").addEventListener("keydown", function (e) {
+    if (e.key === "Enter") sendMessage();
+  });
+
+  document.getElementById("renameBtn").addEventListener("click", renameRoom);
+  document.getElementById("linkBtn").addEventListener("click", copyShareLink);
+  document.getElementById("refreshBtn").addEventListener("click", function () {
+    clearAllChat();
+  });
+  function requestExit() {
+    showConfirm("채팅방에서 나가시겠습니까?", "나가기").then(function (ok) {
+      if (ok) leaveRoom();
+    });
+  }
+  document.getElementById("exitBtn").addEventListener("click", requestExit);
+  document.getElementById("tabCloseBtn").addEventListener("click", requestExit);
+
+  document.getElementById("emojiBar").addEventListener("click", function (e) {
+    var btn = e.target.closest(".emoji-btn");
+    if (!btn) return;
+    var input = document.getElementById("msgInput");
+    input.value += btn.dataset.emoji;
+    input.focus();
+  });
+
+  window.addEventListener("beforeunload", function () {
+    if (state.joined) {
+      // best-effort, 완료를 보장하지는 않음
+      leaveRoom();
+    }
+  });
+
+  // ------------------ 개설된 방 목록 / 사용자 검색 (작은 링크로 열기) ------------------
+  document.getElementById("openRoomList").addEventListener("click", openRoomListModal);
+  document.getElementById("openUserSearch").addEventListener("click", openUserSearchModal);
+
+  // 링크(?room=...)로 들어온 경우, 채팅방 이름을 자동으로 채워준다.
+  (function prefillRoomFromLink() {
+    try {
+      var params = new URLSearchParams(location.search);
+      var roomParam = params.get("room");
+      if (roomParam) {
+        var roomInput = document.getElementById("inputRoom");
+        roomInput.value = roomParam;
+        var hint = document.getElementById("loginError");
+        if (hint) hint.textContent = "";
+        document.getElementById("inputId").focus();
+      }
+    } catch (e) {
+      // URLSearchParams 미지원 등, 무시하고 넘어감
+    }
+  })();
+})();
+</script>
+</body>
+</html>
