@@ -1074,6 +1074,13 @@
 (function () {
   "use strict";
 
+  // ================= 서버 연결 설정 =================
+  // 여러 기기가 같은 방에서 동시에 대화하려면 모두가 함께 쓰는 서버가 필요합니다.
+  // Firebase Realtime Database 주소를 아래 따옴표 안에 붙여넣으세요.
+  // 예: "https://my-chat-default-rtdb.firebaseio.com"
+  // 비워두면 이 기기(이 탭) 안에서만 동작합니다.
+  var BACKEND_URL = "";
+
   // ------------------ 모달 다이얼로그 ------------------
   // 아티팩트는 샌드박스에서 실행되어 브라우저 기본 confirm/prompt/alert 이 동작하지 않는다.
   // 따라서 직접 만든 창을 사용한다.
@@ -1195,7 +1202,7 @@
     roomTitle: "",      // 화면에 보이는 방 이름 (변경 가능)
     lastPresenceSignature: "",
     confirmedLog: [],   // 저장소에서 마지막으로 확인된 로그
-    clearedAt: 0,        // 이 시각 이전의 메시지는 삭제된 것으로 간주
+    epoch: "", lastKey: "", seenKeys: {}, tick: 0, clockOffset: 0, sessionId: "",
     pendingLog: [],      // 아직 저장 확인 전인, 화면에는 이미 반영된 로그
     pollTimer: null,
     heartbeatTimer: null,
@@ -1265,97 +1272,152 @@
     });
   }
 
-  function logKey() { return "chat:" + state.roomKey + ":log"; }
-  function presenceKey() { return "chat:" + state.roomKey + ":presence"; }
-  function titleKey() { return "chat:" + state.roomKey + ":title"; }
-  function clearedKey() { return "chat:" + state.roomKey + ":clearedAt"; }
-  function roomIndexKey() { return "chat:__rooms__"; }
-
-  // ------------------ 저장소 접근 헬퍼 ------------------
-  async function getShared(key) {
-    try {
-      var res = await window.storage.get(key, true);
-      return res ? res.value : null;
-    } catch (e) {
-      return null;
-    }
-  }
-
-  async function setShared(key, value) {
-    try {
-      var res = await window.storage.set(key, value, true);
-      return !!res;
-    } catch (e) {
-      console.error("storage set 실패:", key, e);
-      return false;
-    }
-  }
-
-  // 삭제 시점(clearedAt)보다 오래된 항목은 걸러낸다.
-  // 다른 사용자의 저장 작업이 옛 로그를 되살리더라도 화면에는 나타나지 않는다.
-  function applyClearFilter(arr) {
-    if (!state.clearedAt) return arr;
-    return arr.filter(function (m) { return m.ts > state.clearedAt; });
-  }
-
-  async function getLog() {
-    var raw = await getShared(logKey());
-    if (!raw) return [];
-    try {
-      var arr = JSON.parse(raw);
-      return Array.isArray(arr) ? applyClearFilter(ensureIds(arr)) : [];
-    } catch (e) {
-      return [];
-    }
-  }
-
-  // 저장소에 없는 항목이면 추가 (id 기준 중복 방지)
-  async function persistEntry(entry) {
-    try {
-      var arr = await getLog();
-      if (!arr.some(function (e) { return e.id === entry.id; })) {
-        arr.push(entry);
-        if (arr.length > 300) arr = arr.slice(arr.length - 300);
-        await setShared(logKey(), JSON.stringify(arr));
+  // ------------------ 서버(Firebase REST) / 로컬 저장 계층 ------------------
+  var SV = { ".sv": "timestamp" };
+  var db = (function () {
+    var base = BACKEND_URL.replace(/\/+$/, "");
+    var tree = {}, seq = 0;
+    function segs(p) { return p.split("/").filter(Boolean); }
+    function clone(v) { return v === undefined ? null : JSON.parse(JSON.stringify(v)); }
+    function resolve(v) {
+      if (v && typeof v === "object") {
+        if (v[".sv"] === "timestamp") return Date.now();
+        Object.keys(v).forEach(function (k) { v[k] = resolve(v[k]); });
       }
-    } catch (e) {
-      console.error("메시지 저장 실패:", e);
+      return v;
     }
+    function node(p, make) {
+      var cur = tree, s = segs(p);
+      for (var i = 0; i < s.length; i++) {
+        if (!cur || typeof cur !== "object") return undefined;
+        if (!(s[i] in cur)) { if (!make) return undefined; cur[s[i]] = {}; }
+        cur = cur[s[i]];
+      }
+      return cur;
+    }
+    function setLocal(p, v) {
+      var s = segs(p), last = s.pop(), parent = node(s.join("/"), true);
+      if (v === null || v === undefined) delete parent[last]; else parent[last] = resolve(clone(v));
+      return parent[last];
+    }
+    function query(o) {
+      var parts = [];
+      if (o && (o.startAt || o.limitToLast)) parts.push("orderBy=%22%24key%22");
+      if (o && o.startAt) parts.push("startAt=" + encodeURIComponent('"' + o.startAt + '"'));
+      if (o && o.limitToLast) parts.push("limitToLast=" + o.limitToLast);
+      if (o && o.shallow) parts.push("shallow=true");
+      return parts.join("&");
+    }
+    async function rq(method, path, body, qs, keepalive) {
+      var init = { method: method, cache: "no-store" };
+      if (keepalive) init.keepalive = true;
+      if (body !== undefined) init.body = JSON.stringify(body);
+      var res = await fetch(base + "/" + path + ".json" + (qs ? "?" + qs : ""), init);
+      if (!res.ok) throw new Error("서버 오류 " + res.status);
+      var text = await res.text();
+      return text ? JSON.parse(text) : null;
+    }
+    return {
+      remote: !!base,
+      get: async function (p, o) {
+        if (base) return rq("GET", p, undefined, query(o));
+        var n = node(p);
+        if (n === undefined) return null;
+        if (o && n && typeof n === "object" && (o.startAt || o.limitToLast || o.shallow)) {
+          var keys = Object.keys(n).sort();
+          if (o.startAt) keys = keys.filter(function (k) { return k >= o.startAt; });
+          if (o.limitToLast) keys = keys.slice(-o.limitToLast);
+          if (!keys.length) return null;
+          var out = {};
+          keys.forEach(function (k) { out[k] = o.shallow ? true : n[k]; });
+          return clone(out);
+        }
+        return clone(n);
+      },
+      put: async function (p, v, ka) { return base ? rq("PUT", p, v, "", ka) : clone(setLocal(p, v)); },
+      patch: async function (p, v) {
+        if (base) return rq("PATCH", p, v);
+        Object.keys(v).forEach(function (k) { setLocal(p + "/" + k, v[k]); });
+        return null;
+      },
+      post: async function (p, v, ka) {
+        if (base) return rq("POST", p, v, "", ka);
+        var key = "-" + Date.now().toString(36).padStart(9, "0") + (++seq).toString(36).padStart(4, "0");
+        setLocal(p + "/" + key, v);
+        return { name: key };
+      },
+      del: async function (p, ka) { if (base) return rq("DELETE", p, undefined, "", ka); setLocal(p, null); return null; }
+    };
+  })();
+
+  // 기기 시계가 달라도 접속 여부를 맞게 판단하도록 서버 시간과의 차이를 잰다.
+  async function syncClock() {
+    var t0 = Date.now();
+    var v = await db.put("_clock", SV);
+    if (typeof v !== "number") v = await db.get("_clock");
+    state.clockOffset = (typeof v === "number") ? v - (t0 + Date.now()) / 2 : 0;
+  }
+  function serverNow() { return Date.now() + state.clockOffset; }
+
+  function b64url(str) {
+    var bytes = new TextEncoder().encode(str), bin = "";
+    for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  // 방 이름은 대소문자·공백 차이·한글 조합 방식 차이를 무시하고 같은 방으로 취급한다.
+  function roomKeyFor(name) {
+    return "r" + b64url(sanitizeKey(String(name).normalize("NFC")).toLowerCase());
+  }
+  function roomPath() { return "rooms/" + state.roomKey; }
+  function presencePath() { return roomPath() + "/presence/" + b64url(state.userId) + "_" + state.sessionId; }
+  function newEpoch() { return "e" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5); }
+
+  // 메시지는 한 건씩 따로 저장해서, 여러 명이 동시에 보내도 서로 덮어쓰지 않는다.
+  function entryBody(entry) {
+    return { id: entry.id, type: entry.type, userId: entry.userId || "", nickname: entry.nickname || "", text: entry.text, ts: SV };
+  }
+  async function postEntry(entry) {
+    for (var i = 0; i < 4; i++) {
+      try {
+        await db.post(roomPath() + "/messages", entryBody(entry));
+        touchRoom();
+        return true;
+      } catch (e) {
+        await new Promise(function (r) { setTimeout(r, 800 * (i + 1)); });
+      }
+    }
+    entry.failed = true;
+    renderMerged();
+    return false;
+  }
+
+  var lastTouch = 0;
+  function touchRoom() {
+    if (Date.now() - lastTouch < 30000) return;
+    lastTouch = Date.now();
+    db.patch("roomIndex/" + state.roomKey, { lastActive: SV }).catch(function () {});
+  }
+
+  async function pruneMessages() {
+    try {
+      var keys = await db.get(roomPath() + "/messages", { shallow: true });
+      if (!keys) return;
+      var all = Object.keys(keys).sort();
+      if (all.length <= 500) return;
+      var del = {};
+      all.slice(0, all.length - 300).forEach(function (k) { del[k] = null; });
+      await db.patch(roomPath() + "/messages", del);
+    } catch (e) { /* 정리는 실패해도 괜찮음 */ }
   }
 
   // ------------------ 개설된 방 목록 ------------------
   async function getRooms() {
-    var raw = await getShared(roomIndexKey());
-    if (!raw) return {};
-    try {
-      var obj = JSON.parse(raw);
-      return (obj && typeof obj === "object") ? obj : {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  async function registerRoom(roomNameSource, title) {
-    try {
-      var rooms = await getRooms();
-      rooms[sanitizeKey(roomNameSource)] = {
-        source: roomNameSource,
-        title: title,
-        lastActive: Date.now()
-      };
-      // 오래된 방(7일 이상 활동 없음)은 목록에서 정리
-      var cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000;
-      Object.keys(rooms).forEach(function (k) {
-        if (!rooms[k].lastActive || rooms[k].lastActive < cutoff) delete rooms[k];
-      });
-      await setShared(roomIndexKey(), JSON.stringify(rooms));
-    } catch (e) {
-      console.error("방 목록 등록 실패:", e);
-    }
+    try { await syncClock(); } catch (e) { /* 아래 조회에서 오류가 드러남 */ }
+    return (await db.get("roomIndex")) || {};
   }
 
   function relativeTime(ts) {
-    var diff = Date.now() - ts;
+    var diff = serverNow() - ts;
     var min = Math.floor(diff / 60000);
     if (min < 1) return "방금 전";
     if (min < 60) return min + "분 전";
@@ -1405,9 +1467,11 @@
 
       async function load() {
         listEl.innerHTML = '<div class="roomlist-empty">불러오는 중...</div>';
-        var rooms = await getRooms();
+        var rooms;
+        try { rooms = await getRooms(); }
+        catch (e) { listEl.innerHTML = '<div class="roomlist-empty">서버에 연결할 수 없습니다.</div>'; return; }
         allRooms = Object.keys(rooms).map(function (k) { return rooms[k]; })
-          .filter(function (r) { return r && r.source; })
+          .filter(function (r) { return r && r.source && (serverNow() - (r.lastActive || 0)) < 7 * 86400000; })
           .sort(function (a, b) { return (b.lastActive || 0) - (a.lastActive || 0); });
         draw();
       }
@@ -1471,20 +1535,6 @@
     }, true);
   }
 
-  async function getPresence() {    var raw = await getShared(presenceKey());
-    if (!raw) return {};
-    try {
-      var obj = JSON.parse(raw);
-      return (obj && typeof obj === "object") ? obj : {};
-    } catch (e) {
-      return {};
-    }
-  }
-
-  async function setPresence(obj) {
-    await setShared(presenceKey(), JSON.stringify(obj));
-  }
-
   // ------------------ 고정 대화상대 (항상 목록에 표시되는 장식용 인원) ------------------
   var FIXED_USERS = [
     { userId: "kmsu02",   nickname: "김민수" },
@@ -1539,7 +1589,7 @@
       return (
         '<div class="' + blockClass + '">' +
           '<div class="msg-quote-line"><span class="q-mark">&quot;</span><span class="q-nick">' + escapeHtml(m.nickname) + '</span><span class="q-uid">(' + escapeHtml(maskId(m.userId)) + ')</span><span class="q-mark">&quot;</span><span class="q-label">님의 말:</span></div>' +
-          '<div class="msg-body-line">' + escapeHtml(m.text) + '</div>' +
+          '<div class="msg-body-line">' + escapeHtml(m.text) + (m.failed ? ' <span class="ts" style="color:#c0392b">⚠ 전송 실패</span>' : '') + '</div>' +
         '</div>'
       );
     }).join("");
@@ -1558,15 +1608,18 @@
     var merged = state.confirmedLog.concat(
       state.pendingLog.filter(function (p) { return !confirmedIds[p.id]; })
     );
-    merged.sort(function (a, b) { return a.ts - b.ts; });
     renderLog(merged);
   }
 
   function renderPresence(presenceObj) {
-    var now = Date.now();
-    var liveEntries = Object.keys(presenceObj)
-      .map(function (uid) { return { userId: uid, nickname: presenceObj[uid].nickname, ts: presenceObj[uid].ts, live: true }; })
-      .filter(function (u) { return (now - u.ts) < 20000; }); // 20초 이상 무응답이면 화면에서 제외
+    var now = serverNow();
+    var byId = {};
+    Object.keys(presenceObj).forEach(function (k) {
+      var u = presenceObj[k];
+      if (!u || !u.userId || (now - u.ts) > 20000) return; // 20초 이상 무응답이면 제외
+      if (!byId[u.userId] || byId[u.userId].ts < u.ts) byId[u.userId] = { userId: u.userId, nickname: u.nickname, ts: u.ts, live: true };
+    });
+    var liveEntries = Object.keys(byId).map(function (k) { return byId[k]; });
 
     // 실제 접속자와 아이디가 겹치는 고정 대화상대는 제외하고 합침
     var liveIds = {};
@@ -1608,48 +1661,67 @@
   }
 
   // ------------------ 폴링 ------------------
-  async function pollOnce() {
-    // 다른 사용자가 전체 삭제를 했는지 먼저 확인한다.
-    var clearedRaw = await getShared(clearedKey());
-    var clearedAt = clearedRaw ? parseInt(clearedRaw, 10) : 0;
-    if (clearedAt && clearedAt > state.clearedAt) {
-      state.clearedAt = clearedAt;
-    }
-
-    var arr = await getLog();
-    state.confirmedLog = arr;
-
-    // 확정된 로그에 이미 포함된 항목은 pending에서 제거하고, 삭제된 시점 이전 항목도 제거
-    var confirmedIds = {};
-    arr.forEach(function (e) { confirmedIds[e.id] = true; });
-    state.pendingLog = applyClearFilter(
-      state.pendingLog.filter(function (p) { return !confirmedIds[p.id]; })
-    );
-
+  function resetLocalLog(epoch) {
+    state.epoch = epoch;
+    state.confirmedLog = [];
+    state.pendingLog = [];
+    state.seenKeys = {};
+    state.lastKey = "";
     renderMerged();
+  }
 
-    var presenceObj = await getPresence();
-    var psig = JSON.stringify(presenceObj);
-    if (psig !== state.lastPresenceSignature) {
-      state.lastPresenceSignature = psig;
-      renderPresence(presenceObj);
+  async function pollMessages() {
+    var data = await db.get(roomPath() + "/messages", state.lastKey ? { startAt: state.lastKey } : { limitToLast: 100 });
+    if (data) {
+      Object.keys(data).sort().forEach(function (k) {
+        if (state.seenKeys[k]) return;
+        state.seenKeys[k] = true;
+        state.lastKey = k;
+        var m = data[k];
+        if (!m) return;
+        m.key = k;
+        if (!state.confirmedLog.some(function (e) { return e.id === m.id; })) state.confirmedLog.push(m);
+      });
+      if (state.confirmedLog.length > 400) state.confirmedLog = state.confirmedLog.slice(-300);
+      var ids = {};
+      state.confirmedLog.forEach(function (e) { ids[e.id] = true; });
+      state.pendingLog = state.pendingLog.filter(function (p) { return !ids[p.id]; });
     }
+    renderMerged();
+  }
 
-    var title = await getShared(titleKey());
-    if (title && title !== state.roomTitle) {
-      state.roomTitle = title;
-      document.getElementById("roomTitleText").textContent = "채팅방 - " + title;
-      setRoomTitleDisplay(title);
+  async function pollMeta() {
+    var rs = await Promise.all([db.get(roomPath() + "/meta"), db.get(roomPath() + "/presence")]);
+    var meta = rs[0] || {};
+    if (meta.epoch && meta.epoch !== state.epoch) resetLocalLog(meta.epoch); // 누군가 전체 삭제함
+    if (meta.title && meta.title !== state.roomTitle) {
+      state.roomTitle = meta.title;
+      document.getElementById("roomTitleText").textContent = "채팅방 - " + meta.title;
+      setRoomTitleDisplay(meta.title);
     }
+    renderPresence(rs[1] || {});
+  }
 
-    document.getElementById("statusText").textContent =
-      "연결됨 · " + state.roomTitle + " · 마지막 갱신 " + formatTime(Date.now());
+  var polling = false;
+  async function pollOnce() {
+    if (polling || !state.joined) return;
+    polling = true;
+    try {
+      if (state.tick++ % 2 === 0) await pollMeta();
+      await pollMessages();
+      document.getElementById("statusText").textContent =
+        "연결됨 · " + state.roomTitle + " · 마지막 갱신 " + formatTime(Date.now());
+    } catch (e) {
+      document.getElementById("statusText").textContent = "⚠ 서버 연결 오류 · 다시 시도하는 중...";
+    } finally {
+      polling = false;
+    }
   }
 
   async function heartbeat() {
-    var presenceObj = await getPresence();
-    presenceObj[state.userId] = { nickname: state.nickname, ts: Date.now() };
-    await setPresence(presenceObj);
+    try {
+      await db.put(presencePath(), { userId: state.userId, nickname: state.nickname, ts: SV });
+    } catch (e) { /* 다음 주기에 다시 시도 */ }
   }
 
   // ------------------ 로컬 즉시 반영 + 백그라운드 저장 ------------------
@@ -1657,7 +1729,7 @@
     entry.id = entry.id || nextId();
     state.pendingLog.push(entry);
     renderMerged();
-    persistEntry(entry);
+    postEntry(entry);
     return entry;
   }
 
@@ -1665,43 +1737,40 @@
   async function joinRoom(userId, nickname, roomName) {
     state.userId = userId;
     state.nickname = nickname;
-    state.roomKey = sanitizeKey(roomName);
+    state.roomKey = roomKeyFor(roomName);
     state.roomKeySource = roomName;
     state.roomTitle = roomName;
-    state.clearedAt = 0;
     state.confirmedLog = [];
     state.pendingLog = [];
+    state.seenKeys = {};
+    state.lastKey = "";
+    state.tick = 0;
+    state.sessionId = Math.random().toString(36).slice(2, 8);
 
-    // 이 방의 삭제 시점을 먼저 확인해 지워진 대화가 되살아나지 않게 한다.
-    var clearedRaw = await getShared(clearedKey());
-    state.clearedAt = clearedRaw ? parseInt(clearedRaw, 10) : 0;
+    await syncClock();
 
-    // 방 제목이 없으면 최초 설정
-    var existingTitle = await getShared(titleKey());
-    if (!existingTitle) {
-      await setShared(titleKey(), roomName);
-      state.roomTitle = roomName;
-    } else {
-      state.roomTitle = existingTitle;
-    }
+    // 방이 처음이면 제목과 삭제 기준(epoch)을 만든다. 이미 있으면 그대로 따른다.
+    var meta = (await db.get(roomPath() + "/meta")) || {};
+    var init = {};
+    if (!meta.title) init.title = roomName;
+    if (!meta.epoch) init.epoch = newEpoch();
+    if (init.title || init.epoch) await db.patch(roomPath() + "/meta", init);
+    state.roomTitle = meta.title || roomName;
+    state.epoch = meta.epoch || init.epoch;
 
-    await registerRoom(roomName, state.roomTitle);
+    await db.put("roomIndex/" + state.roomKey, { source: roomName, title: state.roomTitle, lastActive: SV });
 
     document.getElementById("roomTitleText").textContent = "채팅방 - " + state.roomTitle;
     document.getElementById("myInfoText").textContent = nickname + "(" + userId + ") 님으로 접속중";
     setRoomTitleDisplay(state.roomTitle);
     document.getElementById("infoMe").textContent = nickname + "(" + userId + ")";
 
-    // presence 등록
-    var presenceObj = await getPresence();
-    presenceObj[userId] = { nickname: nickname, ts: Date.now() };
-    await setPresence(presenceObj);
+    await heartbeat();
+    pruneMessages();
 
-    // 입장 시스템 메시지
     addLocalEntry({
       type: "system",
-      text: nickname + "(" + maskId(userId) + ")님이 입장하셨습니다.",
-      ts: Date.now()
+      text: nickname + "(" + maskId(userId) + ")님이 입장하셨습니다."
     });
 
     state.joined = true;
@@ -1711,8 +1780,12 @@
 
     await pollOnce();
 
-    state.pollTimer = setInterval(pollOnce, 2000);
+    state.pollTimer = setInterval(pollOnce, 1500);
     state.heartbeatTimer = setInterval(heartbeat, 5000);
+  }
+
+  function leaveText() {
+    return state.nickname + "(" + maskId(state.userId) + ")님이 퇴장하셨습니다.";
   }
 
   async function leaveRoom() {
@@ -1723,16 +1796,8 @@
     if (state.heartbeatTimer) clearInterval(state.heartbeatTimer);
 
     try {
-      var presenceObj = await getPresence();
-      delete presenceObj[state.userId];
-      await setPresence(presenceObj);
-
-      await persistEntry({
-        id: nextId(),
-        type: "system",
-        text: state.nickname + "(" + maskId(state.userId) + ")님이 퇴장하셨습니다.",
-        ts: Date.now()
-      });
+      await db.del(presencePath());
+      await db.post(roomPath() + "/messages", entryBody({ id: nextId(), type: "system", text: leaveText() }));
     } catch (e) {
       // 최선의 노력만 수행
     }
@@ -1770,7 +1835,8 @@
     newTitle = newTitle.trim();
     if (!newTitle) return;
 
-    await setShared(titleKey(), newTitle);
+    await db.put(roomPath() + "/meta/title", newTitle);
+    db.patch("roomIndex/" + state.roomKey, { title: newTitle }).catch(function () {});
     state.roomTitle = newTitle;
     document.getElementById("roomTitleText").textContent = "채팅방 - " + newTitle;
     setRoomTitleDisplay(newTitle);
@@ -1790,18 +1856,15 @@
     );
     if (!ok) return;
 
-    var now = Date.now();
-    state.clearedAt = now;
-    state.confirmedLog = [];
-    state.pendingLog = [];
-    renderMerged();
+    var epoch = newEpoch();
+    resetLocalLog(epoch);
 
     try {
-      // 삭제 시점을 먼저 기록해야 진행 중이던 다른 사용자의 저장이 로그를 되살리지 못한다.
-      await setShared(clearedKey(), String(now));
-      await setShared(logKey(), JSON.stringify([]));
+      // 먼저 메시지를 지우고, 그 다음 삭제 기준(epoch)을 바꿔서 다른 접속자 화면도 비우게 한다.
+      await db.del(roomPath() + "/messages");
+      await db.put(roomPath() + "/meta/epoch", epoch);
     } catch (e) {
-      console.error("채팅 삭제 실패:", e);
+      await showAlert("삭제에 실패했습니다. 서버 연결을 확인해주세요.");
     }
   }
 
@@ -1844,7 +1907,7 @@
     try {
       await joinRoom(idVal, nickVal, roomVal);
     } catch (e) {
-      errEl.textContent = "입장에 실패했습니다. 다시 시도해주세요.";
+      errEl.textContent = "입장에 실패했습니다. 서버 연결을 확인하고 다시 시도해주세요.";
       console.error(e);
     } finally {
       btn.disabled = false;
@@ -1885,10 +1948,15 @@
     input.focus();
   });
 
+  document.addEventListener("visibilitychange", function () {
+    if (!document.hidden && state.joined) pollOnce();
+  });
+
   window.addEventListener("beforeunload", function () {
     if (state.joined) {
-      // best-effort, 완료를 보장하지는 않음
-      leaveRoom();
+      // 창을 닫는 중에도 요청이 끝까지 가도록 keepalive 로 보낸다.
+      db.del(presencePath(), true).catch(function () {});
+      db.post(roomPath() + "/messages", entryBody({ id: nextId(), type: "system", text: leaveText() }), true).catch(function () {});
     }
   });
 
